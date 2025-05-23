@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Монітор Сенсорів - ESP Монітор{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Моніторинг Сенсорів</h1>
+</div>
+
+<div class="row" id="monitor-container">
+    <div class="col-12 text-center text-muted">
+        Завантаження даних... <div class="spinner-border spinner-border-sm ms-2" role="status"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+    // const OFFLINE_THRESHOLD_SECONDS = parseInt("{{ OFFLINE_TIMEOUT }}", 10); // Не використовується на цій сторінці
+
+    function updateMonitor() {
+        fetch("{{ url_for('get_devices_api') }}")
+            .then(response => response.json())
+            .then(devices => {
+                const container = document.getElementById("monitor-container");
+                container.innerHTML = ""; // Очищуємо контейнер
+
+                if (Object.keys(devices).length === 0) {
+                    container.innerHTML = '<div class="col-12 text-center text-muted">Немає активних пристроїв або даних від сенсорів.</div>';
+                    return;
+                }
+
+                const sensors = [];
+                Object.values(devices).forEach(dev => {
+                    // Перевіряємо, чи пристрій онлайн
+                    const lastSeen = new Date(dev.last_seen.replace(" ", "T")); // Сумісність з форматом дати
+                    const now = new Date();
+                    const diffSec = (now - lastSeen) / 1000;
+                    const isOnline = diffSec <= parseInt("{{ OFFLINE_TIMEOUT }}", 10);
+
+                    if (isOnline && dev.data) {
+                        for (const [sensorId, sensorValue] of Object.entries(dev.data)) {
+                            // Додаємо лише якщо значення є числом (для toFixed)
+                            if (typeof sensorValue === 'number') {
+                                sensors.push({ 
+                                    id: sensorId, 
+                                    value: sensorValue, 
+                                    deviceName: dev.name, 
+                                    mac: dev.mac // Додамо MAC для унікальності, якщо потрібно
+                                });
+                            }
+                        }
+                    }
+                });
+
+                if (sensors.length === 0) {
+                    container.innerHTML = '<div class="col-12 text-center text-muted">Немає активних даних від сенсорів онлайн пристроїв.</div>';
+                    return;
+                }
+                
+                // Сортуємо сенсори за назвою пристрою, потім за ID сенсора
+                sensors.sort((a, b) => {
+                    if (a.deviceName.localeCompare(b.deviceName) !== 0) {
+                        return a.deviceName.localeCompare(b.deviceName);
+                    }
+                    return a.id.localeCompare(b.id);
+                });
+
+                sensors.forEach(sensor => {
+                    const card = document.createElement("div");
+                    card.className = "col-sm-6 col-md-4 col-lg-3 mb-4";
+                    // Можна додати клас online/offline, якщо потрібно візуально відображати
+                    card.innerHTML = `
+                        <div class="card shadow border-primary">
+                            <div class="card-header bg-primary text-white">
+                                <h5 class="card-title mb-0">${sensor.deviceName}</h5>
+                            </div>
+                            <div class="card-body text-center">
+                                <p class="card-text">Сенсор: <code>${sensor.id}</code></p>
+                                <p class="display-6 fw-bold">${sensor.value.toFixed(1)} °C</p> 
+                                <small class="text-muted">Пристрій: ${sensor.deviceName}</small>
+                            </div>
+                        </div>
+                    `;
+                    // Примітка: Якщо 'data' може містити не тільки температуру,
+                    // то відображення '°C' потрібно зробити більш гнучким.
+                    container.appendChild(card);
+                });
+            })
+            .catch(error => {
+                console.error("Помилка завантаження даних для монітора:", error);
+                const container = document.getElementById("monitor-container");
+                container.innerHTML = '<div class="col-12 text-center text-danger">Помилка завантаження даних. Дивіться консоль.</div>';
+            });
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        updateMonitor(); // Перший запуск
+        setInterval(updateMonitor, 10000); // Оновлення кожні 10 секунд
+    });
+</script>
+{% endblock %}
